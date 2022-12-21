@@ -167,11 +167,11 @@ impl Application for Player {
                         state.cur_directory = path_buf;
                         return Command::none()
                     }
-                    Message::LoadTrack(path) => {
-                        let path = get_file_name(&path);
-                        state.cur_track_name = Some(path.to_string());
-                        return Command::none()
-                    }
+//                    Message::LoadTrack(path) => { Temporary, remove later
+//                        let path = get_file_name(&path);
+//                        state.cur_track_name = Some(path.to_string());
+//                        return Command::none()
+//                    }
                     Message::StartSong(path) => {
                         // TODO: Start audio playback
                         Message::Play;
