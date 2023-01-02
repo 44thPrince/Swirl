@@ -4,7 +4,7 @@ Planning - Split into subsections for each component of the architecture. Single
 Make skeleton program
     TODO: Align widgets to proper locations
     Create pause play widget
-    TODO: Fast forward//backward widgets
+    TODO: Fast forward/backward widgets
     TODO: Implement audio
 
 State:
@@ -17,7 +17,7 @@ Messages:
     Pause/play event
         TODO: Next/prev track
     Folder picker
-        TODO: Emacs dired style folder picker (replaces above)
+        Emacs dired style folder picker (replaces above)
 
 View Logic:
     Pause, play button
@@ -48,12 +48,16 @@ use iced::{Command, Settings, Subscription, Renderer};
 
 use once_cell::sync::Lazy;
 
+use core::fmt;
 use std::path::PathBuf;
 
 use glob::glob;
 
-// use rodio::{Decoder, OutputStream, Sink};
-// use rodio::source::{SineWave, Source};
+use rodio::{Decoder, OutputStream, Sink};
+use rodio::source::{SineWave, Source};
+
+use std::io::BufReader;
+use std::fs::File;
 
 
 static INPUT_ID: Lazy<text_input::Id> = Lazy::new(text_input::Id::unique);
@@ -64,19 +68,32 @@ fn main() -> iced::Result {
     )
 }
 
-#[derive(Debug)]
 struct State {
     input_value: String,
-    cur_directory: PathBuf, //Change to PathBuf
+    cur_directory: PathBuf,
     tracks: Option<Vec<Track>>,
-    // TODO: cur_track: Sink,
     cur_track_name: Option<String>,
-    playing: bool,
+    playing: bool, // Remove, replace with sink.is_paused()
+    _stream: rodio::OutputStream,
+    handle: rodio::OutputStreamHandle,
+    sink: Sink,
+}
+
+impl std::fmt::Debug for State {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("State")
+            .field("input_value", &self.input_value)
+            .field("cur_directory", &self.cur_directory)
+            .field("tracks", &"I'm not writing this code")
+            .field("cur_track_name", self.cur_track_name.as_ref().unwrap())
+            .finish()
+    }
 }
 
 
 impl Default for State {
     fn default() -> Self {
+        let (_stream, stream_handle) = OutputStream::try_default().unwrap();
         Self {
             input_value: match dirs::home_dir() {
                 Some(home) =>
@@ -101,6 +118,9 @@ impl Default for State {
 
             },
             playing: false,
+            sink: Sink::try_new(&stream_handle).unwrap(),
+            _stream: _stream,
+            handle: stream_handle,
         }
     }
 }
@@ -167,22 +187,20 @@ impl Application for Player {
                         state.cur_directory = path_buf;
                         return Command::none()
                     }
-//                    Message::LoadTrack(path) => { Temporary, remove later
-//                        let path = get_file_name(&path);
-//                        state.cur_track_name = Some(path.to_string());
-//                        return Command::none()
-//                    }
                     Message::StartSong(path) => {
-                        // TODO: Start audio playback
-                        Message::Play;
+                        state.cur_track_name = Some(get_file_name(&path));
+                        state.sink.append(Decoder::new(BufReader::new(File::open(path).unwrap())).unwrap());
+                        state.playing = true;
                         return Command::none();
                     }
                     Message::Pause =>{
                         state.playing = false;
+                        state.sink.pause();
                          return Command::none();
                     }
                     Message::Play => {
                         state.playing = true;
+                        state.sink.play();
                         return Command::none();
                     }
                     Message::DownPressed =>
@@ -194,7 +212,13 @@ impl Application for Player {
                         Command::none(),
                     Message::InputChanged(value) => {
                         state.input_value = (&value).to_string();
-                        Message::LoadDirectory(PathBuf::from(value));
+                        state.tracks = Some(index_cur_directory(&PathBuf::from(&value))
+                            .iter()
+                            .map(|path|{
+                                Track::new(path.clone())
+                            })
+                            .collect());
+                        state.cur_directory = PathBuf::from(value);
                         return Command::none()
                     }
                 }
@@ -209,6 +233,7 @@ impl Application for Player {
                 input_value,
                 playing,
                 tracks,
+                sink,
                 ..
             }) => {
                 let toggle_play;
@@ -218,7 +243,7 @@ impl Application for Player {
                     Message::InputChanged)
                         .id(INPUT_ID.clone())
                         .padding(5);
-                match playing {
+                match playing { // TODO: replace with sink.playing
                     true => {
                         let pause = svg(svg::Handle::from_memory("
 <svg
@@ -288,7 +313,6 @@ impl Application for Player {
                                 })
                                 .collect(),
                         )
-                            .spacing(1)
                             .padding(1)),
                     None =>
                     scrollable(
